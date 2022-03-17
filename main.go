@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"text/scanner"
 )
 
 func usage() {
@@ -20,16 +19,16 @@ func handleErr(line int, msg string) {
 }
 
 func reportErr(line int, where, msg string) {
-	fmt.Printf("[line %d] Error%s: %s", line, where, msg)
+	fmt.Printf("[line %d] Error%s: %s\n", line, where, msg)
 }
 
-func run(source string) bool {
-	var s scanner.Scanner
-	s.Init(strings.NewReader(source))
-	for t := s.Scan(); t != scanner.EOF; t = s.Scan() {
-		fmt.Println(s.TokenText())
+func run(src string) bool {
+	scanner := NewScanner(src)
+	tokens, ok := scanner.ScanTokens()
+	for _, token := range tokens {
+		fmt.Println(token)
 	}
-	return true
+	return ok
 }
 
 func runFile(filename string) {
