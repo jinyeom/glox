@@ -24,11 +24,15 @@ func reportErr(line int, where, msg string) {
 
 func run(src string) bool {
 	scanner := NewScanner(src)
-	tokens, ok := scanner.ScanTokens()
+	tokens, err := scanner.Scan()
+	if err != nil {
+		handleErr(scanner.line, err.Error())
+		return false
+	}
 	for _, token := range tokens {
 		fmt.Println(token)
 	}
-	return ok
+	return true
 }
 
 func runFile(filename string) {

@@ -98,18 +98,18 @@ func NewScanner(src string) *Scanner {
 	}
 }
 
-func (s *Scanner) ScanTokens() ([]Token, bool) {
+func (s *Scanner) Scan() ([]Token, error) {
 	for !s.done() {
-		if ok := s.scanToken(); !ok {
-			return nil, ok
+		if err := s.scanToken(); err != nil {
+			return nil, err
 		}
 		s.start = s.offset
 	}
 	s.tokens = append(s.tokens, Token{TokEOF, "", nil, s.line})
-	return s.tokens, true
+	return s.tokens, nil
 }
 
-func (s *Scanner) scanToken() bool {
+func (s *Scanner) scanToken() error {
 	c := s.step()
 	switch c {
 	case '(':
@@ -168,7 +168,7 @@ func (s *Scanner) scanToken() bool {
 	case '\n':
 		s.line++
 	case '"':
-		s.string()
+		return s.string()
 	default:
 		switch {
 		case isDigit(c):
@@ -176,11 +176,10 @@ func (s *Scanner) scanToken() bool {
 		case isAlpha(c):
 			s.identifier()
 		default:
-			handleErr(s.line, fmt.Sprintf("Unexpected character: %s", string(c)))
-			return false
+			return fmt.Errorf("unexpected character: %s", string(c))
 		}
 	}
-	return true
+	return nil
 }
 
 func (s *Scanner) step() byte {
@@ -224,7 +223,7 @@ func (s *Scanner) peekNext() byte {
 	return s.src[s.offset+1]
 }
 
-func (s *Scanner) string() {
+func (s *Scanner) string() error {
 	for s.peek() != '"' && !s.done() {
 		if s.peek() == '\n' {
 			s.line++
@@ -232,11 +231,12 @@ func (s *Scanner) string() {
 		s.step()
 	}
 	if s.done() {
-		handleErr(s.line, fmt.Sprintf("Incomplete string: %s", s.src[s.start:s.offset]))
+		return fmt.Errorf("incomplete string: %s", s.src[s.start:s.offset])
 	}
 	s.step() // closing "
 	value := s.src[s.start+1 : s.offset-1]
 	s.addToken(TokString, value)
+	return nil
 }
 
 func (s *Scanner) number() {
