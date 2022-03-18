@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
-	"text/scanner"
 )
 
 type TokenType byte
@@ -58,7 +56,6 @@ const (
 	TokEOF
 )
 
-// keywords is a map of reserved keywords to their token types
 var keywords map[string]TokenType = map[string]TokenType{
 	"and":    TokAnd,
 	"class":  TokClass,
@@ -85,55 +82,35 @@ type Token struct {
 	Line    int
 }
 
-func (t Token) String() string {
-	return fmt.Sprintf("[%d]%s:%d(%v)", t.Line, t.Lexeme, t.Type, t.Literal)
-}
-
-// ScanTokens scans the argument source code and return scanned tokens.
-func ScanTokens(source string) []Token {
-	var s scanner.Scanner
-	s.Init(strings.NewReader(source))
-	tokens := make([]Token, 0)
-	for t := s.Scan(); t != scanner.EOF; t = s.Scan() {
-		fmt.Println(s.TokenText())
-	}
-	return tokens
-}
-
-// TODO: does this really need to be a structure, or can we get away with a scan function?
 type Scanner struct {
-	src                  string
-	tokens               []Token
-	start, current, line int
+	src                 string
+	start, offset, line int
+	tokens              []Token
 }
 
 func NewScanner(src string) *Scanner {
 	return &Scanner{
-		src:     src,
-		tokens:  make([]Token, 0),
-		start:   0,
-		current: 0,
-		line:    1,
+		src:    src,
+		start:  0,
+		offset: 0,
+		line:   1,
+		tokens: make([]Token, 0),
 	}
 }
 
 func (s *Scanner) ScanTokens() ([]Token, bool) {
-	for !s.Done() {
-		s.start = s.current
+	for !s.done() {
 		if ok := s.scanToken(); !ok {
 			return nil, ok
 		}
+		s.start = s.offset
 	}
 	s.tokens = append(s.tokens, Token{TokEOF, "", nil, s.line})
 	return s.tokens, true
 }
 
-func (s *Scanner) Done() bool {
-	return s.current >= len(s.src)
-}
-
 func (s *Scanner) scanToken() bool {
-	c := s.advance()
+	c := s.step()
 	switch c {
 	case '(':
 		s.addToken(TokLeftParen, nil)
@@ -181,8 +158,8 @@ func (s *Scanner) scanToken() bool {
 		s.addToken(t, nil)
 	case '/':
 		if s.match('/') {
-			for s.peek() != '\n' && !s.Done() {
-				s.advance()
+			for s.peek() != '\n' && !s.done() {
+				s.step()
 			}
 		} else {
 			s.addToken(TokSlash, nil)
@@ -193,11 +170,12 @@ func (s *Scanner) scanToken() bool {
 	case '"':
 		s.string()
 	default:
-		if s.isDigit(c) {
+		switch {
+		case isDigit(c):
 			s.number()
-		} else if s.isAlpha(c) {
+		case isAlpha(c):
 			s.identifier()
-		} else {
+		default:
 			handleErr(s.line, fmt.Sprintf("Unexpected character: %s", string(c)))
 			return false
 		}
@@ -205,91 +183,95 @@ func (s *Scanner) scanToken() bool {
 	return true
 }
 
-func (s *Scanner) advance() byte {
-	c := s.src[s.current]
-	s.current++
+func (s *Scanner) step() byte {
+	c := s.src[s.offset]
+	s.offset++
 	return c
+}
+
+func (s *Scanner) done() bool {
+	return s.offset >= len(s.src)
 }
 
 func (s *Scanner) addToken(tokenType TokenType, literal interface{}) {
 	s.tokens = append(s.tokens, Token{
 		Type:    tokenType,
-		Lexeme:  s.src[s.start:s.current],
+		Lexeme:  s.src[s.start:s.offset],
 		Literal: literal,
 		Line:    s.line,
 	})
 }
 
 func (s *Scanner) match(expected byte) bool {
-	if s.Done() || s.src[s.current] != expected {
+	if s.done() || s.src[s.offset] != expected {
 		return false
 	}
-	s.current++
+	s.offset++
 	return true
 }
 
 func (s *Scanner) peek() byte {
-	if s.Done() {
+	if s.done() {
 		return '\000'
 	}
-	return s.src[s.current]
-}
-
-func (s *Scanner) string() {
-	for s.peek() != '"' && !s.Done() {
-		if s.peek() == '\n' {
-			s.line++
-		}
-		s.advance()
-	}
-	if s.Done() {
-		handleErr(s.line, fmt.Sprintf("Incomplete string: %s", s.src[s.start:s.current]))
-	}
-	s.advance() // closing "
-	value := s.src[s.start+1 : s.current-1]
-	s.addToken(TokString, value)
-}
-
-func (s *Scanner) isDigit(c byte) bool {
-	return c >= '0' && c <= '9'
-}
-
-func (s *Scanner) number() {
-	for s.isDigit(s.peek()) {
-		s.advance()
-	}
-	if s.peek() == '.' && s.isDigit(s.peekNext()) {
-		s.advance()
-		for s.isDigit(s.peek()) {
-			s.advance()
-		}
-	}
-	value, _ := strconv.ParseFloat(s.src[s.start:s.current], 64)
-	s.addToken(TokNumber, value)
+	return s.src[s.offset]
 }
 
 func (s *Scanner) peekNext() byte {
-	if s.current+1 >= len(s.src) {
+	if s.offset+1 >= len(s.src) {
 		return '\000'
 	}
-	return s.src[s.current+1]
+	return s.src[s.offset+1]
+}
+
+func (s *Scanner) string() {
+	for s.peek() != '"' && !s.done() {
+		if s.peek() == '\n' {
+			s.line++
+		}
+		s.step()
+	}
+	if s.done() {
+		handleErr(s.line, fmt.Sprintf("Incomplete string: %s", s.src[s.start:s.offset]))
+	}
+	s.step() // closing "
+	value := s.src[s.start+1 : s.offset-1]
+	s.addToken(TokString, value)
+}
+
+func (s *Scanner) number() {
+	for isDigit(s.peek()) {
+		s.step()
+	}
+	if s.peek() == '.' && isDigit(s.peekNext()) {
+		s.step()
+		for isDigit(s.peek()) {
+			s.step()
+		}
+	}
+	value, _ := strconv.ParseFloat(s.src[s.start:s.offset], 64)
+	s.addToken(TokNumber, value)
 }
 
 func (s *Scanner) identifier() {
-	for s.isAlphaNumeric(s.peek()) {
-		s.advance()
+	for isAlphaNumeric(s.peek()) {
+		s.step()
 	}
 	tokenType := TokIdentifier
-	if keywordType, ok := keywords[s.src[s.start:s.current]]; ok {
+	if keywordType, ok := keywords[s.src[s.start:s.offset]]; ok {
 		tokenType = keywordType
 	}
 	s.addToken(tokenType, nil)
 }
 
-func (s *Scanner) isAlpha(c byte) bool {
+func isAlpha(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
-func (s *Scanner) isAlphaNumeric(c byte) bool {
-	return s.isAlpha(c) || s.isDigit(c)
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func isAlphaNumeric(c byte) bool {
+	return isAlpha(c) || isDigit(c)
 }
